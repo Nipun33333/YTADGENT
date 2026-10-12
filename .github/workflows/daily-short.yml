@@ -70,6 +70,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Prepare local TTS fallback voice
+        run: python -m video.offline_tts --download
+
       - name: Force compatible MoviePy
         run: |
           python -m pip uninstall -y moviepy || true

@@ -486,6 +486,10 @@ def _concat_audio_files(input_paths: list[str], output_path: str) -> None:
             pass
 
 
+class _EdgeTTSUnavailable(RuntimeError):
+    """Speech service failed after bounded recovery attempts."""
+
+
 async def _synthesise(text: str, audio_path: str, srt_path: str) -> int:
     """Synthesize long narration in bounded chunks so Edge TTS cannot choke on a 1k+ word request."""
     max_words = int(getattr(config, "EDGE_TTS_CHUNK_WORDS", 260))
@@ -513,7 +517,7 @@ async def _synthesise(text: str, audio_path: str, srt_path: str) -> int:
                 status = getattr(exc, "status", None)
                 detail = f"HTTP {status}" if status else type(exc).__name__
                 if attempt == max_retries:
-                    raise RuntimeError(
+                    raise _EdgeTTSUnavailable(
                         f"Edge TTS voiceover failed after {max_retries} attempts ({detail}). "
                         "The speech service may be temporarily unavailable or rejecting this runner."
                     ) from None
@@ -592,7 +596,22 @@ def generate_narration(script: dict, output_dir: str) -> str:
     srt_path   = os.path.join(output_dir, "narration.srt")
 
     print(f"   → Synthesising {len(full_text.split())} words via Edge TTS…")
-    asyncio.run(_synthesise(full_text, audio_path, srt_path))
+    try:
+        asyncio.run(_synthesise(full_text, audio_path, srt_path))
+    except _EdgeTTSUnavailable:
+        from video.offline_tts import synthesise
+        print("   → Edge TTS unavailable; using local Piper fallback voice (LJSpeech).")
+        try:
+            synthesise(full_text, audio_path)
+            _build_sentence_srt(full_text, audio_path, srt_path)
+        except Exception:
+            for stale in (audio_path, srt_path):
+                try:
+                    os.remove(stale)
+                except FileNotFoundError:
+                    pass
+            raise
+
 
     # ── Post-run report ──────────────────────────────────────────────────────
     size_kb     = os.path.getsize(audio_path) // 1024

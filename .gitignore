@@ -50,3 +50,6 @@ desktop.ini
 
 # ── Logs ─────────────────────────────────
 *.log
+
+# Downloaded local TTS voice assets
+.tts-models/

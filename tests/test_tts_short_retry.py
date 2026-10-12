@@ -76,3 +76,54 @@ def test_empty_audio_is_retried(monkeypatch, tmp_path):
     monkeypatch.setattr(narrator.asyncio, 'sleep', sleep)
     assert asyncio.run(narrator._synthesise('Short text.', str(tmp_path/'n.mp3'), str(tmp_path/'n.srt'))) == 1
     assert len(calls) == 2
+
+
+def test_exhausted_edge_uses_piper_and_rebuilds_captions(monkeypatch, tmp_path):
+    from video import offline_tts
+    async def unavailable(*args):
+        raise narrator._EdgeTTSUnavailable('HTTP 403')
+    calls = []
+    def fallback(text, audio_path):
+        calls.append(text)
+        Path(audio_path).write_bytes(b'local audio')
+    monkeypatch.setattr(narrator, '_synthesise', unavailable)
+    monkeypatch.setattr(offline_tts, 'synthesise', fallback)
+    monkeypatch.setattr(narrator, '_get_audio_duration_ms', lambda _: 3000)
+    text = 'This is the complete narration.'
+    audio = narrator.generate_narration({'sections':[{'narration':text}]}, str(tmp_path))
+    assert calls == [text]
+    assert Path(audio).read_bytes() == b'local audio'
+    captions = (tmp_path/'narration.srt').read_text()
+    assert text in captions
+    assert '00:00:03,000' in captions
+
+
+def test_fallback_failure_removes_partial_outputs(monkeypatch, tmp_path):
+    from video import offline_tts
+    async def unavailable(*args):
+        raise narrator._EdgeTTSUnavailable('HTTP 403')
+    def fallback(text, audio_path):
+        Path(audio_path).write_bytes(b'partial')
+        (tmp_path/'narration.srt').write_text('partial')
+        raise RuntimeError('Local voice unavailable')
+    monkeypatch.setattr(narrator, '_synthesise', unavailable)
+    monkeypatch.setattr(offline_tts, 'synthesise', fallback)
+    with pytest.raises(RuntimeError, match='Local voice unavailable'):
+        narrator.generate_narration({'sections':[{'narration':'Text.'}]}, str(tmp_path))
+    assert not (tmp_path/'narration.mp3').exists()
+    assert not (tmp_path/'narration.srt').exists()
+
+
+def test_missing_model_fails_without_implicit_download(monkeypatch, tmp_path):
+    from video import offline_tts
+    monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
+    with pytest.raises(RuntimeError, match='model missing or invalid'):
+        offline_tts.ensure_model()
+
+
+def test_corrupt_model_rejected(monkeypatch, tmp_path):
+    from video import offline_tts
+    monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
+    (tmp_path/offline_tts.MODEL_NAME).write_bytes(b'corrupt')
+    with pytest.raises(RuntimeError, match='model missing or invalid'):
+        offline_tts.ensure_model()
