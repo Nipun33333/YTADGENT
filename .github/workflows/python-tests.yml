@@ -1,0 +1,32 @@
+name: Python regression tests
+
+on:
+  pull_request:
+    paths:
+      - "agents/**"
+      - "tests/**"
+      - "config.py"
+      - "requirements.txt"
+      - ".github/workflows/python-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest python-dotenv requests
+      - name: Run deterministic regression tests
+        run: |
+          python -m compileall -q agents tests
+          python -m pytest -q
