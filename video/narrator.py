@@ -493,7 +493,33 @@ async def _synthesise(text: str, audio_path: str, srt_path: str) -> int:
     chunks = _split_text_for_tts(text, max_words)
 
     if len(chunks) <= 1:
-        return await _synthesise_single(text, audio_path, srt_path)
+        # Short narration needs the same bounded recovery as long chunks.
+        # Re-create Communicate on each attempt; its stream is single-use.
+        for attempt in range(1, max_retries + 1):
+            try:
+                cues = await _synthesise_single(text, audio_path, srt_path)
+                if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+                    raise RuntimeError("Edge TTS produced empty narration.")
+                return cues
+            except Exception as exc:
+                for stale in (audio_path, srt_path):
+                    try:
+                        os.remove(stale)
+                    except FileNotFoundError:
+                        pass
+                # Bad voice/rate configuration cannot be fixed by retrying.
+                if isinstance(exc, (ValueError, TypeError)):
+                    raise
+                status = getattr(exc, "status", None)
+                detail = f"HTTP {status}" if status else type(exc).__name__
+                if attempt == max_retries:
+                    raise RuntimeError(
+                        f"Edge TTS voiceover failed after {max_retries} attempts ({detail}). "
+                        "The speech service may be temporarily unavailable or rejecting this runner."
+                    ) from None
+                # Do not log the exception URL: it contains request tokens.
+                print(f"   ⚠ Edge TTS attempt {attempt}/{max_retries} failed ({detail}); retrying…")
+                await asyncio.sleep(min(2 * attempt, 6))
 
     print(f"   → Long narration: splitting {len(text.split())} words into {len(chunks)} Edge TTS chunks (≤{max_words} words each)…")
     temp_dir = tempfile.mkdtemp(prefix="edge_tts_chunks_", dir=os.path.dirname(audio_path) or None)

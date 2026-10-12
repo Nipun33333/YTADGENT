@@ -30,3 +30,30 @@ jobs:
         run: |
           python -m compileall -q agents tests
           python -m pytest -q
+
+      - name: Check live Edge TTS voiceover (manual only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python -m pip install 'edge-tts>=7.2.8'
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python - <<'PY'
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          from video.narrator import generate_narration
+
+          with tempfile.TemporaryDirectory() as output:
+              audio = generate_narration({"sections": [{"narration":
+                  "This is a voiceover test for the video pipeline. "
+                  "The narration should sound clear and the captions should follow the spoken words."
+              }]}, output)
+              result = subprocess.run([
+                  "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                  "-of", "json", audio,
+              ], check=True, capture_output=True, text=True)
+              assert float(json.loads(result.stdout)["format"]["duration"]) > 0
+              assert " --> " in Path(output, "narration.srt").read_text()
+              print("Live voiceover and captions verified; no video generated or uploaded.")
+          PY
