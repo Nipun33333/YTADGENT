@@ -13,7 +13,8 @@ from urllib.request import urlopen
 
 
 MODEL_REVISION = "c10ece1aade47bb51c153c893d14e5bf8e5b7117"
-MODEL_NAME = "en_US-ljspeech-medium.onnx"
+MODEL_NAME = "en_US-john-medium.onnx"
+VOICE_LABEL = "John (US English male, medium)"
 MODEL_BASE = (
     "https://huggingface.co/rhasspy/piper-voices/resolve/"
     f"{MODEL_REVISION}/en/en_US/ljspeech/medium"
