@@ -1,9 +1,9 @@
 """
-Narrator — Microsoft Edge TTS (100% free)
-Generates broadcast-quality voiceover + word-level subtitle (SRT) file.
+Narrator — local Kokoro male voice (100% free)
+Generates voiceover + proportionally timed subtitle (SRT) file.
 The SRT is used by the Shorts creator to burn in synced captions.
 
-Compatible with all edge-tts versions (6.0 → 7.x).
+Legacy Edge TTS helpers remain available for compatibility.
 Uses MoviePy's AudioFileClip for duration — guaranteed to match the video render.
 """
 import os
@@ -599,22 +599,18 @@ def generate_narration(script: dict, output_dir: str) -> str:
     audio_path = os.path.join(output_dir, "narration.mp3")
     srt_path   = os.path.join(output_dir, "narration.srt")
 
-    print(f"   → Synthesising {len(full_text.split())} words via Edge TTS…")
+    from video.offline_tts import synthesise, VOICE_LABEL
+    print(f"   → Synthesising {len(full_text.split())} words via {VOICE_LABEL}…")
     try:
-        asyncio.run(_synthesise(full_text, audio_path, srt_path))
-    except _EdgeTTSUnavailable:
-        from video.offline_tts import synthesise, VOICE_LABEL
-        print(f"   → Edge TTS unavailable; using local Piper fallback voice ({VOICE_LABEL}).")
-        try:
-            synthesise(full_text, audio_path)
-            _build_sentence_srt(full_text, audio_path, srt_path)
-        except Exception:
-            for stale in (audio_path, srt_path):
-                try:
-                    os.remove(stale)
-                except FileNotFoundError:
-                    pass
-            raise
+        synthesise(full_text, audio_path)
+        _build_sentence_srt(full_text, audio_path, srt_path)
+    except Exception:
+        for stale in (audio_path, srt_path):
+            try:
+                os.remove(stale)
+            except FileNotFoundError:
+                pass
+        raise
 
 
     # ── Post-run report ──────────────────────────────────────────────────────

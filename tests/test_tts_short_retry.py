@@ -78,10 +78,10 @@ def test_empty_audio_is_retried(monkeypatch, tmp_path):
     assert len(calls) == 2
 
 
-def test_exhausted_edge_uses_piper_and_rebuilds_captions(monkeypatch, tmp_path):
+def test_narration_uses_selected_local_voice_without_edge(monkeypatch, tmp_path):
     from video import offline_tts
     async def unavailable(*args):
-        raise narrator._EdgeTTSUnavailable('HTTP 403')
+        pytest.fail('Selected local voice must not depend on Edge availability')
     calls = []
     def fallback(text, audio_path):
         calls.append(text)
@@ -156,6 +156,10 @@ def test_later_long_chunk_failure_falls_back_for_complete_text(monkeypatch, tmp_
     monkeypatch.setattr(narrator.asyncio, 'sleep', sleep)
     monkeypatch.setattr(narrator, '_get_audio_duration_ms', lambda _: 60000)
     monkeypatch.setattr(offline_tts, 'synthesise', fallback)
+    # Legacy Edge recovery remains bounded, but public narration always uses
+    # the selected local voice regardless of the speech service's availability.
+    with pytest.raises(narrator._EdgeTTSUnavailable):
+        asyncio.run(narrator._synthesise(text, str(tmp_path/'narration.mp3'), str(tmp_path/'narration.srt')))
     audio = narrator.generate_narration({'sections': [{'narration': text}]}, str(tmp_path))
     assert attempts == [chunks[0]] + [chunks[1]] * 3
     assert fallback_texts == [text]
@@ -193,8 +197,8 @@ def test_model_download_verifies_assets_and_reuses_cache(monkeypatch, tmp_path):
     def download(url, timeout):
         # The model filename, directory and companion assets must agree.
         base, name = url.rsplit('/', 1)
-        assert base.endswith('/en/en_US/john/medium')
-        assert offline_tts.MODEL_NAME == 'en_US-john-medium.onnx'
+        assert base.endswith('/kokoro-onnx/releases/download/model-files-v1.0')
+        assert offline_tts.MODEL_NAME == 'kokoro-v1.0.onnx'
         downloads.append(name)
         return io.BytesIO(assets[name])
 
@@ -215,6 +219,50 @@ def test_bad_download_never_replaces_verified_model(monkeypatch, tmp_path):
     monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
     monkeypatch.setattr(offline_tts, 'urlopen', lambda *a, **k: io.BytesIO(b'wrong model'))
     monkeypatch.setattr(offline_tts.time, 'sleep', lambda _: None)
-    with pytest.raises(RuntimeError, match='Could not provision verified Piper asset'):
+    with pytest.raises(RuntimeError, match='Could not provision verified Kokoro asset'):
         offline_tts.ensure_model(download=True)
     assert not list(tmp_path.iterdir())
+
+
+def test_missing_voice_runtime_never_installs_during_narration(monkeypatch, tmp_path):
+    from video import offline_tts
+    monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
+    with pytest.raises(RuntimeError, match='runtime missing'):
+        offline_tts._ensure_runtime()
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('install_fails', [False, True])
+def test_voice_runtime_setup_is_isolated_and_only_caches_success(monkeypatch, tmp_path, install_fails):
+    import os
+    import subprocess
+    import venv
+    from video import offline_tts
+    calls = []
+
+    def create(_builder, directory):
+        executable = directory / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.touch()
+
+    def run(command, **kwargs):
+        calls.append(command)
+        # The application's Python/NumPy environment must never receive pip installs.
+        assert Path(command[0]).is_relative_to(tmp_path)
+        if install_fails:
+            raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
+    monkeypatch.setattr(venv.EnvBuilder, 'create', create)
+    monkeypatch.setattr(offline_tts.subprocess, 'run', run)
+    if install_fails:
+        with pytest.raises(subprocess.CalledProcessError):
+            offline_tts._ensure_runtime(download=True)
+        with pytest.raises(RuntimeError, match='runtime missing'):
+            offline_tts._ensure_runtime()
+        assert not list(tmp_path.rglob('ready.txt'))
+    else:
+        python = offline_tts._ensure_runtime(download=True)
+        assert offline_tts._ensure_runtime() == python
+        assert len(calls) == 2
+        assert 'kokoro-onnx==0.6.1' in calls[0]
