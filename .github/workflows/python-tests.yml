@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "agents/**"
+      - "video/**"
       - "tests/**"
       - "config.py"
       - "requirements.txt"

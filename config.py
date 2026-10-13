@@ -78,7 +78,7 @@ DISCOVERY_CATEGORY_IDS = tuple(
 # ---------------------------------------------------------------------------
 VOICE_ID = os.getenv("VOICE_ID", "en-US-AndrewNeural")
 VOICE_RATE = os.getenv("VOICE_RATE", "-5%")
-VOICE_PITCH = os.getenv("VOICE_PITCH", "-3Hz")
+VOICE_PITCH = os.getenv("VOICE_PITCH", "+0Hz")
 EDGE_TTS_TIMEOUT_SECONDS = float(os.getenv("EDGE_TTS_TIMEOUT_SECONDS", "120"))
 EDGE_TTS_CHUNK_WORDS = int(os.getenv("EDGE_TTS_CHUNK_WORDS", "260"))
 EDGE_TTS_CHUNK_RETRIES = int(os.getenv("EDGE_TTS_CHUNK_RETRIES", "3"))

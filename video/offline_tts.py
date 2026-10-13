@@ -17,13 +17,13 @@ MODEL_NAME = "en_US-john-medium.onnx"
 VOICE_LABEL = "John (US English male, medium)"
 MODEL_BASE = (
     "https://huggingface.co/rhasspy/piper-voices/resolve/"
-    f"{MODEL_REVISION}/en/en_US/ljspeech/medium"
+    f"{MODEL_REVISION}/en/en_US/john/medium"
 )
 # Model weights, voice configuration, and public-domain dataset notice.
 MODEL_FILES = {
-    MODEL_NAME: "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22",
-    MODEL_NAME + ".json": "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860",
-    "MODEL_CARD": "fbee1529c89d36b3fe76d7e9f3f832dce17f44900a52d76a9bda735654766b4d",
+    MODEL_NAME: "789c6c875726e627ddee93d51d8727859abe9c091c3d141591f4b83c2072e988",
+    MODEL_NAME + ".json": "af60f177b6b550f3d7a302720c0fb89e7f94a82b5dca464775ef63b1c69ba09a",
+    "MODEL_CARD": "a056da65cd70dcbda96fc3420fe8d3442dbf3c8b75f49cdf800a715b42e299d1",
 }
 
 
