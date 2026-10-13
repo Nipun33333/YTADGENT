@@ -132,7 +132,7 @@ DEFAULT_HASHTAGS = ["#Shorts"]
 # Music / paths
 # ---------------------------------------------------------------------------
 MUSIC_ENABLED = True
-MUSIC_VOLUME = 0.12
+MUSIC_VOLUME = 0.15
 MUSIC_LIBRARY_DIR = os.path.join(PROJECT_ROOT, "music library")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
