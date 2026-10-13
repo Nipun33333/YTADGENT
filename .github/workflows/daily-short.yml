@@ -2,36 +2,16 @@ name: Daily YouTube Pipeline
 
 on:
   workflow_dispatch:
-    inputs:
-      video_type:
-        description: "Manual run mode. Use auto for the normal Asia/Kolkata weekday/weekend schedule."
-        required: false
-        default: "auto"
-        type: choice
-        options:
-          - auto
-          - shorts
-          - long
 
   schedule:
-    # Monday-Friday evenings: 3 Shorts.
-    # The third slot is 00:30 IST on the following calendar day,
-    # so the five weekday evening runs are represented by Tue-Sat 00:30.
-    - cron: "0 20 * * 1-5"
+    # Monday-Sunday: 3 Shorts at 6:00 PM, 8:00 PM, and 10:00 PM IST.
+    - cron: "0 18 * * *"
       timezone: "Asia/Kolkata"
 
-    - cron: "0 22 * * 1-5"
+    - cron: "0 20 * * *"
       timezone: "Asia/Kolkata"
 
-    - cron: "30 0 * * 2-6"
-      timezone: "Asia/Kolkata"
-
-    # Saturday: 1 Long Video at 17:00 IST.
-    - cron: "0 17 * * 6"
-      timezone: "Asia/Kolkata"
-
-    # Sunday: 1 Long Video at 17:00 IST.
-    - cron: "0 17 * * 0"
+    - cron: "0 22 * * *"
       timezone: "Asia/Kolkata"
 
 permissions:
@@ -91,25 +71,6 @@ jobs:
         run: |
           python -m uploader.oauth_preflight
 
-      - name: Resolve scheduled video type
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE_CRON: ${{ github.event.schedule }}
-          MANUAL_VIDEO_TYPE: ${{ inputs.video_type }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ -z "$MANUAL_VIDEO_TYPE" ] || [ "$MANUAL_VIDEO_TYPE" = "auto" ]; then
-              echo "PIPELINE_VIDEO_TYPE=" >> "$GITHUB_ENV"
-            else
-              echo "PIPELINE_VIDEO_TYPE=$MANUAL_VIDEO_TYPE" >> "$GITHUB_ENV"
-            fi
-          elif [ "$SCHEDULE_CRON" = "0 20 * * 1-5" ] || [ "$SCHEDULE_CRON" = "0 22 * * 1-5" ] || [ "$SCHEDULE_CRON" = "30 0 * * 2-6" ]; then
-            echo "PIPELINE_VIDEO_TYPE=shorts" >> "$GITHUB_ENV"
-          else
-            echo "PIPELINE_VIDEO_TYPE=long" >> "$GITHUB_ENV"
-          fi
-
       - name: Run AI video pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -117,6 +78,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           PIPELINE_TIMEZONE: Asia/Kolkata
+          PIPELINE_VIDEO_TYPE: shorts
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
           VIDEO_PRIVACY: public
