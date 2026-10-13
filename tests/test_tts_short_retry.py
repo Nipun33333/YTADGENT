@@ -127,3 +127,94 @@ def test_corrupt_model_rejected(monkeypatch, tmp_path):
     (tmp_path/offline_tts.MODEL_NAME).write_bytes(b'corrupt')
     with pytest.raises(RuntimeError, match='model missing or invalid'):
         offline_tts.ensure_model()
+
+
+def test_later_long_chunk_failure_falls_back_for_complete_text(monkeypatch, tmp_path, capsys):
+    from video import offline_tts
+    text = ' '.join(f'word{i}' for i in range(170))
+    chunks = narrator._split_text_for_tts(text, 80)
+    attempts, fallback_texts = [], []
+
+    async def synth(chunk, audio, srt):
+        attempts.append(chunk)
+        Path(audio).write_bytes(b'partial')
+        Path(srt).write_text('partial')
+        if chunk != chunks[0]:
+            raise RejectedSpeechService('secret_request_token')
+        return 1
+
+    async def sleep(delay):
+        pass
+
+    def fallback(full_text, audio):
+        fallback_texts.append(full_text)
+        Path(audio).write_bytes(b'complete male narration')
+
+    monkeypatch.setattr(narrator.config, 'EDGE_TTS_CHUNK_WORDS', 80)
+    monkeypatch.setattr(narrator.config, 'EDGE_TTS_CHUNK_RETRIES', 3)
+    monkeypatch.setattr(narrator, '_synthesise_single', synth)
+    monkeypatch.setattr(narrator.asyncio, 'sleep', sleep)
+    monkeypatch.setattr(narrator, '_get_audio_duration_ms', lambda _: 60000)
+    monkeypatch.setattr(offline_tts, 'synthesise', fallback)
+    audio = narrator.generate_narration({'sections': [{'narration': text}]}, str(tmp_path))
+    assert attempts == [chunks[0]] + [chunks[1]] * 3
+    assert fallback_texts == [text]
+    assert Path(audio).read_bytes() == b'complete male narration'
+    captions = narrator._read_srt_blocks(str(tmp_path / 'narration.srt'))
+    assert ' '.join(' '.join(lines) for _, _, lines in captions) == text
+    assert captions[-1][1] == 60000
+    assert not list(tmp_path.glob('edge_tts_chunks_*'))
+    assert 'secret_request_token' not in capsys.readouterr().out
+
+
+def test_invalid_long_voice_configuration_is_not_retried(monkeypatch, tmp_path):
+    calls = []
+
+    async def synth(text, audio, srt):
+        calls.append(text)
+        Path(audio).write_bytes(b'partial')
+        raise ValueError('Invalid voice')
+
+    monkeypatch.setattr(narrator.config, 'EDGE_TTS_CHUNK_WORDS', 80)
+    monkeypatch.setattr(narrator, '_synthesise_single', synth)
+    with pytest.raises(ValueError, match='Invalid voice'):
+        asyncio.run(narrator._synthesise('word ' * 170, str(tmp_path/'n.mp3'), str(tmp_path/'n.srt')))
+    assert len(calls) == 1
+    assert not list(tmp_path.iterdir())
+
+
+def test_model_download_verifies_assets_and_reuses_cache(monkeypatch, tmp_path):
+    import hashlib
+    import io
+    from video import offline_tts
+    assets = {name: f'asset {name}'.encode() for name in offline_tts.MODEL_FILES}
+    downloads = []
+
+    def download(url, timeout):
+        # The model filename, directory and companion assets must agree.
+        base, name = url.rsplit('/', 1)
+        assert base.endswith('/en/en_US/john/medium')
+        assert offline_tts.MODEL_NAME == 'en_US-john-medium.onnx'
+        downloads.append(name)
+        return io.BytesIO(assets[name])
+
+    monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
+    monkeypatch.setattr(offline_tts, 'MODEL_FILES', {
+        name: hashlib.sha256(data).hexdigest() for name, data in assets.items()
+    })
+    monkeypatch.setattr(offline_tts, 'urlopen', download)
+    model = offline_tts.ensure_model(download=True)
+    assert model.read_bytes() == assets[offline_tts.MODEL_NAME]
+    assert offline_tts.ensure_model() == model
+    assert downloads == list(assets)
+
+
+def test_bad_download_never_replaces_verified_model(monkeypatch, tmp_path):
+    import io
+    from video import offline_tts
+    monkeypatch.setenv('PIPER_MODEL_DIR', str(tmp_path))
+    monkeypatch.setattr(offline_tts, 'urlopen', lambda *a, **k: io.BytesIO(b'wrong model'))
+    monkeypatch.setattr(offline_tts.time, 'sleep', lambda _: None)
+    with pytest.raises(RuntimeError, match='Could not provision verified Piper asset'):
+        offline_tts.ensure_model(download=True)
+    assert not list(tmp_path.iterdir())

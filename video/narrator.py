@@ -546,19 +546,23 @@ async def _synthesise(text: str, audio_path: str, srt_path: str) -> int:
                     break
                 except Exception as e:
                     last_error = e
-                    print(f"         ⚠ Chunk {index} attempt {attempt}/{max_retries} failed: {e}")
                     for stale in (chunk_audio, chunk_srt):
                         try:
                             os.remove(stale)
                         except OSError:
                             pass
+                    if isinstance(e, (ValueError, TypeError)):
+                        raise
+                    status = getattr(e, "status", None)
+                    detail = f"HTTP {status}" if status else type(e).__name__
+                    print(f"         ⚠ Chunk {index} attempt {attempt}/{max_retries} failed ({detail})")
                     if attempt < max_retries:
                         await asyncio.sleep(min(2 * attempt, 6))
 
             if last_error is not None:
-                raise RuntimeError(
-                    f"Edge TTS failed for chunk {index}/{len(chunks)} after {max_retries} attempts: {last_error}"
-                ) from last_error
+                raise _EdgeTTSUnavailable(
+                    f"Edge TTS failed for chunk {index}/{len(chunks)} after {max_retries} attempts ({detail})."
+                ) from None
 
             duration_ms = _get_audio_duration_ms(chunk_audio)
             audio_parts.append(chunk_audio)
@@ -599,8 +603,8 @@ def generate_narration(script: dict, output_dir: str) -> str:
     try:
         asyncio.run(_synthesise(full_text, audio_path, srt_path))
     except _EdgeTTSUnavailable:
-        from video.offline_tts import synthesise
-        print("   → Edge TTS unavailable; using local Piper fallback voice (LJSpeech).")
+        from video.offline_tts import synthesise, VOICE_LABEL
+        print(f"   → Edge TTS unavailable; using local Piper fallback voice ({VOICE_LABEL}).")
         try:
             synthesise(full_text, audio_path)
             _build_sentence_srt(full_text, audio_path, srt_path)
