@@ -1,8 +1,7 @@
 """Semantic selector for current US trending-topic explanations.
 
-This module has no fixed niche gate. Candidates come from broad current US YouTube
-signals and Gemini selects one current subject that can support an explanation,
-breakdown, context, analysis, or recap video.
+This module has no fixed niche gate. Each supplied US trend is checked in source
+order for safety and usability as an explanation, without comparing popularity.
 """
 from __future__ import annotations
 
@@ -47,11 +46,9 @@ def build_selection_prompt(candidates: list[dict], channel_description: str = ""
             "description": item.get("description", "")[:300],
             "channel": item.get("channel", ""),
             "category_id": item.get("category_id", ""),
-            "views": item.get("views", 0),
-            "likes": item.get("likes", 0),
-            "comments": item.get("comments", 0),
-            "trend_score": item.get("trend_score", 0),
             "published_at": item.get("published_at", ""),
+            "trend_recorded_at": item.get("trend_recorded_at", ""),
+            "source": item.get("source", ""),
         }, ensure_ascii=False))
 
     return f"""You are the current-US-trend selector for a YouTube explanation channel.
@@ -60,7 +57,9 @@ CHANNEL POSITIONING:
 {channel_description}
 
 GOAL:
-Select ONE genuinely current, high-signal US trending candidate from the list.
+Accept the FIRST safe, usable US trending candidate in the supplied source order.
+Discovery has already chosen the current or historical fallback time window.
+Historical fallback records are eligible; do not reject them merely for age.
 The selected candidate becomes the immutable subject for the entire pipeline.
 It can be ANY subject that is genuinely trending. Do not impose any fixed
 subject, franchise, category, entertainment, news, or keyword restriction.
@@ -68,9 +67,8 @@ Do not use a predefined category allowlist.
 
 SELECTION RULES:
 - Choose only a candidate_id present in the supplied list.
-- Prefer strong current trend signals: recency, view velocity, engagement, and
-  broad US interest.
-- Prefer candidates that can be explained, contextualized, analyzed, or broken
+- Never rank or compare candidates by views, engagement, velocity, or viral score.
+- Accept a candidate if it can be explained, contextualized, analyzed, or broken
   down in a short video.
 - A raw clip/performance is acceptable when the surrounding subject itself is
   explainable; do not invent a different topic.
@@ -97,7 +95,19 @@ def select_semantic_candidate(candidates: list[dict], channel_description: str =
     if not candidates:
         raise ValueError("No candidates supplied to trend selector.")
 
-    prompt = build_selection_prompt(candidates, channel_description)
+    # Singleton checks make source-order selection deterministic: the model
+    # cannot skip an eligible candidate in favor of a more popular later one.
+    for candidate in candidates:
+        try:
+            return _check_semantic_candidate(candidate, channel_description)
+        except RuntimeError as exc:
+            if "No usable current US trend candidate" not in str(exc):
+                raise
+    raise RuntimeError("No usable current US trend candidate matched the explanation criteria.")
+
+
+def _check_semantic_candidate(candidate: dict, channel_description: str) -> dict[str, Any]:
+    prompt = build_selection_prompt([candidate], channel_description)
     try:
         raw = generate(
             prompt,
@@ -114,16 +124,14 @@ def select_semantic_candidate(candidates: list[dict], channel_description: str =
     if not candidate_id:
         raise RuntimeError("No usable current US trend candidate matched the explanation criteria.")
 
-    lookup = {str(x.get("video_id")): x for x in candidates}
-    selected = lookup.get(str(candidate_id))
-    if selected is None:
+    if str(candidate_id) != str(candidate.get("video_id")):
         raise ValueError("Trend selector returned an unknown candidate_id.")
 
     content_type = str(result.get("content_type", "EXPLAINER")).upper().strip()
     if content_type not in ALLOWED_CONTENT_TYPES:
         content_type = "EXPLAINER"
 
-    selected = dict(selected)
+    selected = dict(candidate)
     selected.update({
         "content_type": content_type,
         "content_domain": "GENERAL_TREND",
