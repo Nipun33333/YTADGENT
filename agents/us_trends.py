@@ -224,7 +224,7 @@ def fetch_youtube_candidates() -> list[dict]:
             print(f"   ⚠ {source} discovery failed: {type(exc).__name__}")
 
     candidates = _dedupe_and_score(videos)
-    print(f"   → Found {len(candidates)} unique recent YouTube candidates before semantic filtering")
+    print(f"   → Found {len(candidates)} unique recent YouTube candidates")
     return candidates
 
 
@@ -238,7 +238,7 @@ def filter_candidates(candidates: list[dict]) -> list[dict]:
         if any(topics_are_similar(title, old) for old in used):
             continue
         filtered.append(candidate)
-    print(f"   → {len(filtered)} unused candidates remain before semantic trend gate")
+    print(f"   → {len(filtered)} unused candidates remain")
     return filtered
 
 
@@ -251,7 +251,7 @@ def choose_best_trend(candidates: list[dict], channel_description: str = "") -> 
 
     print(f"   ✅ Selected current US trend: {selected['title']}")
     print(f"   🎯 Domain: {selected['content_domain']} | Type: {selected['content_type']}")
-    print(f"   🧠 Angle: {selected['content_angle'] or '(Gemini did not provide one)'}")
+    print(f"   🧠 Angle: {selected['content_angle']}")
 
     return {
         "candidate_id": selected["video_id"],
@@ -275,7 +275,14 @@ def choose_best_trend(candidates: list[dict], channel_description: str = "") -> 
 
 def get_best_us_trending_topic(channel_description: str = "") -> dict:
     # Fixed source order, independent of response speed or popularity metrics.
-    candidates = fetch_google_trends_candidates() + fetch_youtube_candidates()
+    candidates = fetch_google_trends_candidates()
+    current = filter_candidates([
+        candidate for candidate in candidates
+        if 0 <= _age_hours(candidate.get("trend_recorded_at", "")) <= 24
+    ])
+    if current:
+        return choose_best_trend(current, channel_description)
+    candidates += fetch_youtube_candidates()
     if not candidates:
         raise RuntimeError("Could not retrieve current YouTube discovery candidates.")
     filtered = filter_candidates(candidates)

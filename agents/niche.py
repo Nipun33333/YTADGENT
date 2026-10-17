@@ -1,17 +1,13 @@
-"""Semantic selector for current US trending-topic explanations.
+"""Source-order selector for US trending-topic explanations.
 
-This module has no fixed niche gate. Each supplied US trend is checked in source
-order for safety and usability as an explanation, without comparing popularity.
+Discovery supplies eligible trends. Selection only checks for readable topic
+data and supplies the existing pipeline metadata, without Gemini verification.
 """
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
-
-from agents.gemini_client import generate
-import config
-
 
 CONTENT_MODE = "US_TREND_EXPLANATION"
 ALLOWED_CONTENT_TYPES = {
@@ -92,52 +88,27 @@ Return ONLY JSON:
 
 
 def select_semantic_candidate(candidates: list[dict], channel_description: str = "") -> dict[str, Any]:
+    """Retain the public interface without running semantic approval."""
     if not candidates:
         raise ValueError("No candidates supplied to trend selector.")
 
-    # Singleton checks make source-order selection deterministic: the model
-    # cannot skip an eligible candidate in favor of a more popular later one.
     for candidate in candidates:
-        try:
-            return _check_semantic_candidate(candidate, channel_description)
-        except RuntimeError as exc:
-            if "No usable current US trend candidate" not in str(exc):
-                raise
-    raise RuntimeError("No usable current US trend candidate matched the explanation criteria.")
+        title = candidate.get("title")
+        if not candidate.get("video_id") or not isinstance(title, str) or not title.strip():
+            continue
+        return _check_semantic_candidate(candidate, channel_description)
+    raise RuntimeError("No usable current US trend candidate contains readable topic data.")
 
 
 def _check_semantic_candidate(candidate: dict, channel_description: str) -> dict[str, Any]:
-    prompt = build_selection_prompt([candidate], channel_description)
-    try:
-        raw = generate(
-            prompt,
-            timeout_seconds=getattr(config, "GEMINI_SELECTION_TIMEOUT_SECONDS", 30),
-            max_models=getattr(config, "GEMINI_SELECTION_MAX_MODELS", 6),
-        )
-    except TypeError as exc:
-        if "unexpected keyword argument" not in str(exc):
-            raise
-        raw = generate(prompt)
-
-    result = clean_json_response(raw)
-    candidate_id = result.get("candidate_id")
-    if not candidate_id:
-        raise RuntimeError("No usable current US trend candidate matched the explanation criteria.")
-
-    if str(candidate_id) != str(candidate.get("video_id")):
-        raise ValueError("Trend selector returned an unknown candidate_id.")
-
-    content_type = str(result.get("content_type", "EXPLAINER")).upper().strip()
-    if content_type not in ALLOWED_CONTENT_TYPES:
-        content_type = "EXPLAINER"
-
+    """Compatibility adapter only; no model call or topic qualification."""
     selected = dict(candidate)
     selected.update({
-        "content_type": content_type,
+        "content_type": "EXPLAINER",
         "content_domain": "GENERAL_TREND",
-        "content_angle": str(result.get("content_angle", "")).strip(),
-        "why_it_fits": str(result.get("why_it_fits", "")).strip(),
-        "semantic_confidence": float(result.get("confidence", 0) or 0),
+        "content_angle": f"Explain {candidate['title']} clearly and directly.",
+        "why_it_fits": "Discovered in US trend source data.",
+        "semantic_confidence": 0.0,
     })
     return selected
 
