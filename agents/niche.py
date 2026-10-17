@@ -1,13 +1,18 @@
-"""Source-order selector for US trending-topic explanations.
+"""Semantic selector for current US trending-topic explanations.
 
-Discovery supplies eligible trends. Selection only checks for readable topic
-data and supplies the existing pipeline metadata, without Gemini verification.
+This module has no fixed niche gate. Candidates come from broad current US YouTube
+signals and Gemini selects one current subject that can support an explanation,
+breakdown, context, analysis, or recap video.
 """
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
+
+from agents.gemini_client import generate
+import config
+
 
 CONTENT_MODE = "US_TREND_EXPLANATION"
 ALLOWED_CONTENT_TYPES = {
@@ -42,9 +47,11 @@ def build_selection_prompt(candidates: list[dict], channel_description: str = ""
             "description": item.get("description", "")[:300],
             "channel": item.get("channel", ""),
             "category_id": item.get("category_id", ""),
+            "views": item.get("views", 0),
+            "likes": item.get("likes", 0),
+            "comments": item.get("comments", 0),
+            "trend_score": item.get("trend_score", 0),
             "published_at": item.get("published_at", ""),
-            "trend_recorded_at": item.get("trend_recorded_at", ""),
-            "source": item.get("source", ""),
         }, ensure_ascii=False))
 
     return f"""You are the current-US-trend selector for a YouTube explanation channel.
@@ -53,9 +60,7 @@ CHANNEL POSITIONING:
 {channel_description}
 
 GOAL:
-Accept the FIRST safe, usable US trending candidate in the supplied source order.
-Discovery has already chosen the current or historical fallback time window.
-Historical fallback records are eligible; do not reject them merely for age.
+Select ONE genuinely current, high-signal US trending candidate from the list.
 The selected candidate becomes the immutable subject for the entire pipeline.
 It can be ANY subject that is genuinely trending. Do not impose any fixed
 subject, franchise, category, entertainment, news, or keyword restriction.
@@ -63,8 +68,9 @@ Do not use a predefined category allowlist.
 
 SELECTION RULES:
 - Choose only a candidate_id present in the supplied list.
-- Never rank or compare candidates by views, engagement, velocity, or viral score.
-- Accept a candidate if it can be explained, contextualized, analyzed, or broken
+- Prefer strong current trend signals: recency, view velocity, engagement, and
+  broad US interest.
+- Prefer candidates that can be explained, contextualized, analyzed, or broken
   down in a short video.
 - A raw clip/performance is acceptable when the surrounding subject itself is
   explainable; do not invent a different topic.
@@ -88,27 +94,42 @@ Return ONLY JSON:
 
 
 def select_semantic_candidate(candidates: list[dict], channel_description: str = "") -> dict[str, Any]:
-    """Retain the public interface without running semantic approval."""
     if not candidates:
         raise ValueError("No candidates supplied to trend selector.")
 
-    for candidate in candidates:
-        title = candidate.get("title")
-        if not candidate.get("video_id") or not isinstance(title, str) or not title.strip():
-            continue
-        return _check_semantic_candidate(candidate, channel_description)
-    raise RuntimeError("No usable current US trend candidate contains readable topic data.")
+    prompt = build_selection_prompt(candidates, channel_description)
+    try:
+        raw = generate(
+            prompt,
+            timeout_seconds=getattr(config, "GEMINI_SELECTION_TIMEOUT_SECONDS", 30),
+            max_models=getattr(config, "GEMINI_SELECTION_MAX_MODELS", 6),
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        raw = generate(prompt)
 
+    result = clean_json_response(raw)
+    candidate_id = result.get("candidate_id")
+    if not candidate_id:
+        raise RuntimeError("No usable current US trend candidate matched the explanation criteria.")
 
-def _check_semantic_candidate(candidate: dict, channel_description: str) -> dict[str, Any]:
-    """Compatibility adapter only; no model call or topic qualification."""
-    selected = dict(candidate)
+    lookup = {str(x.get("video_id")): x for x in candidates}
+    selected = lookup.get(str(candidate_id))
+    if selected is None:
+        raise ValueError("Trend selector returned an unknown candidate_id.")
+
+    content_type = str(result.get("content_type", "EXPLAINER")).upper().strip()
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        content_type = "EXPLAINER"
+
+    selected = dict(selected)
     selected.update({
-        "content_type": "EXPLAINER",
+        "content_type": content_type,
         "content_domain": "GENERAL_TREND",
-        "content_angle": f"Explain {candidate['title']} clearly and directly.",
-        "why_it_fits": "Discovered in US trend source data.",
-        "semantic_confidence": 0.0,
+        "content_angle": str(result.get("content_angle", "")).strip(),
+        "why_it_fits": str(result.get("why_it_fits", "")).strip(),
+        "semantic_confidence": float(result.get("confidence", 0) or 0),
     })
     return selected
 

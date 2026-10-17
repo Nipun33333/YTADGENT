@@ -1,19 +1,22 @@
-"""US trend discovery with source-order selection and dated trend fallbacks."""
+"""Dynamic current US YouTube trend discovery.
+
+Discovery uses broad YouTube popularity signals with no fixed topic keyword list
+or niche restriction. Gemini selects one current candidate that can support an
+explanation and that candidate becomes the canonical subject for all later stages.
+"""
 from __future__ import annotations
 
-import hashlib
+import json
 import os
 import re
 import requests
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-from xml.etree import ElementTree
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 import config
 from agents.niche import select_semantic_candidate
 
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3"
-GOOGLE_TRENDS_RSS_URL = "https://trends.google.com/trending/rss"
 USED_TOPICS_FILE = os.path.join(config.PROJECT_ROOT, "used_topics.txt")
 SEARCH_HOURS = config.DISCOVERY_WINDOW_HOURS
 BANNED_KEYWORDS = [
@@ -93,65 +96,28 @@ def youtube_request(endpoint: str, params: dict, timeout: float = 8.0) -> dict:
 def _age_hours(published_at: str) -> float:
     try:
         published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
-        age = (datetime.now(timezone.utc) - published).total_seconds() / 3600
-        return age if age >= 0 else float("inf")
+        return max(0.0, (datetime.now(timezone.utc) - published).total_seconds() / 3600)
     except Exception:
-        return float("inf")
+        return SEARCH_HOURS + 1
 
 
 def calculate_video_score(video: dict) -> float:
-    """Compatibility shim: viral scoring is no longer used."""
-    return 0.0
+    views = max(int(video.get("views", 0)), 1)
+    likes = int(video.get("likes", 0))
+    comments = int(video.get("comments", 0))
+    age = max(_age_hours(video.get("published_at", "")), 0.5)
+    velocity = views / age
+    velocity_score = min(45.0, max(0.0, 10.0 * __import__("math").log10(max(velocity, 1))))
+    engagement_score = min(20.0, ((likes + comments) / views) * 1000.0)
+    recency_score = max(0.0, 20.0 - (age / SEARCH_HOURS) * 20.0)
+    return round(min(100.0, velocity_score + engagement_score + recency_score), 2)
 
 
 def _source_specs() -> list[tuple[str, dict]]:
-    return [("US_mostPopular", {"chart": "mostPopular", "regionCode": "US"})]
-
-
-def fetch_google_trends_candidates() -> list[dict]:
-    """Read only dated US trend records actually supplied by Google's RSS feed.
-
-    The feed is not a 30-day archive. Older fallbacks are available only when
-    the source includes records in those windows; never synthesize history.
-    """
-    try:
-        response = requests.get(
-            GOOGLE_TRENDS_RSS_URL, params={"geo": "US"},
-            headers={"User-Agent": "YTAGENT-US-Trending/1.0"}, timeout=8.0,
-        )
-        response.raise_for_status()
-        root = ElementTree.fromstring(response.content)
-    except Exception as exc:
-        print(f"   ⚠ Google Trends discovery failed: {type(exc).__name__}")
-        return []
-
-    candidates = []
-    for item in root.findall("./channel/item"):
-        title = (item.findtext("title") or "").strip()
-        try:
-            published = parsedate_to_datetime(item.findtext("pubDate") or "")
-            if published.tzinfo is None:
-                continue
-            published_at = published.astimezone(timezone.utc).isoformat()
-        except (TypeError, ValueError, OverflowError):
-            continue
-        description = " ".join(
-            node.text.strip() for node in item.iter()
-            if node.tag.rsplit("}", 1)[-1] in
-            {"description", "news_item_title", "news_item_snippet"} and node.text
-        )
-        if not title or _age_hours(published_at) > 30 * 24 or is_banned(title + " " + description):
-            continue
-        record_id = hashlib.sha256((title + published_at).encode("utf-8")).hexdigest()
-        candidates.append({
-            "video_id": "google-trends-" + record_id,
-            "title": title, "description": description[:600],
-            "published_at": published_at, "trend_recorded_at": published_at,
-            "channel": "Google Trends US", "category_id": "",
-            "views": 0, "likes": 0, "comments": 0, "trend_score": 0,
-            "source": "Google_Trends_US",
-        })
-    return candidates
+    specs = [("US_mostPopular", {"chart": "mostPopular", "regionCode": config.DISCOVERY_REGION})]
+    for category_id in config.DISCOVERY_CATEGORY_IDS:
+        specs.append((f"US_category_{category_id}", {"chart": "mostPopular", "regionCode": config.DISCOVERY_REGION, "videoCategoryId": category_id}))
+    return specs
 
 
 def _fetch_source(source_name: str, base_params: dict) -> tuple[str, list[dict]]:
@@ -162,12 +128,7 @@ def _fetch_source(source_name: str, base_params: dict) -> tuple[str, list[dict]]
         params.update({"part": "snippet,statistics", "maxResults": config.DISCOVERY_RESULTS_PER_SOURCE})
         if page_token:
             params["pageToken"] = page_token
-        try:
-            data = youtube_request("videos", params)
-        except Exception as exc:
-            print(f"   ⚠ {source_name} discovery failed: {type(exc).__name__}")
-            break
-        observed_at = datetime.now(timezone.utc).isoformat()
+        data = youtube_request("videos", params)
         for item in data.get("items", []) or []:
             video_id = str(item.get("id") or "").strip()
             snippet = item.get("snippet") or {}
@@ -177,6 +138,8 @@ def _fetch_source(source_name: str, base_params: dict) -> tuple[str, list[dict]]
             description = str(snippet.get("description") or "").strip()
             if not video_id or not title or not published_at:
                 continue
+            if _age_hours(published_at) > SEARCH_HOURS:
+                continue
             if is_banned(title + " " + description):
                 continue
             collected.append({
@@ -184,9 +147,6 @@ def _fetch_source(source_name: str, base_params: dict) -> tuple[str, list[dict]]
                 "title": title,
                 "description": description[:600],
                 "published_at": published_at,
-                # A live US chart establishes a current observation, not a
-                # historical trend date inferred from the video's upload age.
-                "trend_recorded_at": observed_at,
                 "channel": str(snippet.get("channelTitle") or "").strip(),
                 "category_id": str(snippet.get("categoryId") or base_params.get("videoCategoryId") or ""),
                 "views": int(stats.get("viewCount", 0) or 0),
@@ -201,13 +161,15 @@ def _fetch_source(source_name: str, base_params: dict) -> tuple[str, list[dict]]
 
 
 def _dedupe_and_score(videos: list[dict]) -> list[dict]:
-    """Keep the first source occurrence; retain the legacy name for callers."""
     unique: dict[str, dict] = {}
     for video in videos:
         vid = video["video_id"]
-        if vid not in unique:
-            unique[vid] = dict(video, trend_score=0)
-    return list(unique.values())
+        if vid not in unique or video.get("trend_score", 0) > unique[vid].get("trend_score", 0):
+            video["trend_score"] = calculate_video_score(video)
+            unique[vid] = video
+    result = list(unique.values())
+    result.sort(key=lambda x: (x.get("trend_score", 0), x.get("views", 0)), reverse=True)
+    return result
 
 
 def fetch_youtube_candidates() -> list[dict]:
@@ -215,16 +177,22 @@ def fetch_youtube_candidates() -> list[dict]:
     print("   → Broad current signals only; no fixed topic keyword list.")
 
     videos: list[dict] = []
-    for source, params in _source_specs():
-        try:
-            _, rows = _fetch_source(source, params)
-            videos.extend(rows)
-            print(f"   → {source}: {len(rows)} current chart candidates")
-        except Exception as exc:
-            print(f"   ⚠ {source} discovery failed: {type(exc).__name__}")
+    specs = _source_specs()
+    workers = min(max(1, config.DISCOVERY_SOURCE_WORKERS), len(specs))
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_fetch_source, name, params): name for name, params in specs}
+        for future in as_completed(futures):
+            source = futures[future]
+            try:
+                _, rows = future.result()
+                videos.extend(rows)
+                print(f"   → {source}: {len(rows)} recent candidates")
+            except Exception as exc:
+                print(f"   ⚠ {source} discovery failed: {exc}")
 
     candidates = _dedupe_and_score(videos)
-    print(f"   → Found {len(candidates)} unique recent YouTube candidates")
+    print(f"   → Found {len(candidates)} unique recent YouTube candidates before semantic filtering")
     return candidates
 
 
@@ -233,12 +201,12 @@ def filter_candidates(candidates: list[dict]) -> list[dict]:
     filtered = []
     for candidate in candidates:
         title = candidate.get("title", "").strip()
-        if not title or is_banned(title + " " + candidate.get("description", "")):
+        if not title or is_banned(title):
             continue
         if any(topics_are_similar(title, old) for old in used):
             continue
         filtered.append(candidate)
-    print(f"   → {len(filtered)} unused candidates remain")
+    print(f"   → {len(filtered)} unused candidates remain before semantic trend gate")
     return filtered
 
 
@@ -247,11 +215,41 @@ def choose_best_trend(candidates: list[dict], channel_description: str = "") -> 
     if not candidates:
         raise RuntimeError("No usable current YouTube candidates found.")
 
-    selected = select_semantic_candidate(candidates, channel_description)
+    # Preserve broad current-trend ranking. No fixed topic/category priority
+    # is applied; observed trend score and views are the only ordering signals.
+    ordered = sorted(
+        candidates[: max(1, config.DISCOVERY_CANDIDATE_LIMIT)],
+        key=lambda x: (float(x.get("trend_score", 0) or 0), int(x.get("views", 0) or 0)),
+        reverse=True,
+    )
+    batch_size = max(1, int(getattr(config, "DISCOVERY_SEMANTIC_BATCH_SIZE", 30)))
+    max_batches = max(1, int(getattr(config, "DISCOVERY_SEMANTIC_MAX_BATCHES", 4)))
+    checked = 0
+    selected = None
+
+    for batch_index in range(max_batches):
+        batch = ordered[checked : checked + batch_size]
+        if not batch:
+            break
+        checked += len(batch)
+        print(f"   → Semantic trend gate batch {batch_index + 1}: evaluating {len(batch)} candidates...")
+        try:
+            selected = select_semantic_candidate(batch, channel_description)
+            break
+        except RuntimeError as exc:
+            # A null result means no candidate in this window was suitable for
+            # an explanation. Continue scanning later current candidates.
+            if "No usable current US trend candidate" in str(exc):
+                print(f"   ↪ No explainable current trend in batch {batch_index + 1}; checking the next batch...")
+                continue
+            raise
+
+    if selected is None:
+        raise RuntimeError("No usable current US trend candidate after semantic scanning.")
 
     print(f"   ✅ Selected current US trend: {selected['title']}")
     print(f"   🎯 Domain: {selected['content_domain']} | Type: {selected['content_type']}")
-    print(f"   🧠 Angle: {selected['content_angle']}")
+    print(f"   🧠 Angle: {selected['content_angle'] or '(Gemini did not provide one)'}")
 
     return {
         "candidate_id": selected["video_id"],
@@ -264,7 +262,7 @@ def choose_best_trend(candidates: list[dict], channel_description: str = "") -> 
         "content_type": selected["content_type"],
         "content_domain": selected["content_domain"],
         "content_angle": selected.get("content_angle", ""),
-        "trend_score": 0,
+        "trend_score": selected.get("trend_score", 0),
         "channel": selected.get("channel", ""),
         "published_at": selected.get("published_at", ""),
         "views": selected.get("views", 0),
@@ -274,32 +272,10 @@ def choose_best_trend(candidates: list[dict], channel_description: str = "") -> 
 
 
 def get_best_us_trending_topic(channel_description: str = "") -> dict:
-    # Fixed source order, independent of response speed or popularity metrics.
-    candidates = fetch_google_trends_candidates()
-    current = filter_candidates([
-        candidate for candidate in candidates
-        if 0 <= _age_hours(candidate.get("trend_recorded_at", "")) <= 24
-    ])
-    if current:
-        return choose_best_trend(current, channel_description)
-    candidates += fetch_youtube_candidates()
+    candidates = fetch_youtube_candidates()
     if not candidates:
         raise RuntimeError("Could not retrieve current YouTube discovery candidates.")
     filtered = filter_candidates(candidates)
     if not filtered:
         raise RuntimeError("All current candidates were already used or blocked.")
-    # Snapshot ages once so records cannot slip between windows as time passes.
-    dated = [(candidate, _age_hours(candidate.get("trend_recorded_at", "")))
-             for candidate in filtered]
-    for minimum, maximum in ((0, 24), (24, 72), (72, 30 * 24)):
-        window = [candidate for candidate, age in dated
-                  if (age >= minimum if minimum == 0 else age > minimum) and age <= maximum]
-        if not window:
-            continue
-        print(f"   → Checking US trend records aged {minimum}–{maximum} hours in source order")
-        try:
-            return choose_best_trend(window, channel_description)
-        except RuntimeError as exc:
-            if "No usable current US trend candidate" not in str(exc):
-                raise
-    raise RuntimeError("No usable current US trend candidate after semantic scanning.")
+    return choose_best_trend(filtered, channel_description)
