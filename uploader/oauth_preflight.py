@@ -7,12 +7,59 @@ from __future__ import annotations
 
 import os
 import pickle
+import re
 from pathlib import Path
 
 import config
 
 TOKEN_PATH = Path(config.PROJECT_ROOT) / "youtube_token.pickle"
 REQUIRED_SECRETS = ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN")
+
+
+# Google's documented OAuth error codes. Only the code (never the response
+# text, which could echo request values) is printed, so CI logs stay secret-safe
+# while still saying which credential is wrong.
+_OAUTH_ERROR_HINTS = {
+    "invalid_client": (
+        "YOUTUBE_CLIENT_SECRET does not belong to YOUTUBE_CLIENT_ID (or that OAuth "
+        "client no longer exists). Copy BOTH values from the same OAuth Desktop "
+        "client in Google Cloud > Google Auth Platform > Clients."
+    ),
+    "unauthorized_client": (
+        "YOUTUBE_REFRESH_TOKEN was issued to a different OAuth client than "
+        "YOUTUBE_CLIENT_ID. Run renew_youtube_token.py with the client_secret.json "
+        "of the client whose ID/secret are in GitHub Secrets, then replace "
+        "YOUTUBE_REFRESH_TOKEN."
+    ),
+    "deleted_client": (
+        "the OAuth client in YOUTUBE_CLIENT_ID was deleted in Google Cloud. Create "
+        "a new Desktop client, update YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, "
+        "and reauthorize to get a new YOUTUBE_REFRESH_TOKEN."
+    ),
+    "disabled_client": (
+        "the OAuth client in YOUTUBE_CLIENT_ID is disabled in Google Cloud. "
+        "Re-enable it or create a new Desktop client and reauthorize."
+    ),
+    "invalid_scope": (
+        "the refresh token was not granted the YouTube upload scope. Reauthorize "
+        "with renew_youtube_token.py and replace YOUTUBE_REFRESH_TOKEN."
+    ),
+    "invalid_request": (
+        "one of YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET / YOUTUBE_REFRESH_TOKEN "
+        "is malformed (extra spaces, quotes or a partial copy). Re-paste them."
+    ),
+    "access_denied": (
+        "the Google account or Workspace policy denied access. Reauthorize with the "
+        "account that owns the YouTube channel."
+    ),
+}
+
+
+def _oauth_error_code(detail: str) -> str | None:
+    for code in _OAUTH_ERROR_HINTS:
+        if re.search(rf"\b{code}\b", detail):
+            return code
+    return None
 
 
 def validate_and_store_oauth(
@@ -62,8 +109,15 @@ def validate_and_store_oauth(
                 "Reauthorize with the matching OAuth client, then replace the "
                 "YOUTUBE_REFRESH_TOKEN GitHub Actions secret."
             ) from None
+        code = _oauth_error_code(detail)
+        if code:
+            raise RuntimeError(
+                f"YouTube OAuth token refresh failed: Google answered '{code}'. "
+                + _OAUTH_ERROR_HINTS[code]
+            ) from None
         raise RuntimeError(
-            "YouTube OAuth token refresh failed before video generation. "
+            "YouTube OAuth token refresh failed before video generation "
+            f"({type(exc).__name__}, no OAuth error code in Google's answer). "
             "Check the OAuth client configuration, Google API availability, "
             "and the encrypted GitHub Secrets; see the Actions error for context."
         ) from None

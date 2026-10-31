@@ -80,6 +80,19 @@ def test_preflight_does_not_leak_secret_from_generic_failure(tmp_path):
     assert "test-secret" not in str(err.value)
 
 
+def test_preflight_names_google_error_code_without_leaking_secret(tmp_path):
+    env = dict(ENV, YOUTUBE_REFRESH_TOKEN="other-failure")
+    with pytest.raises(RuntimeError) as err:
+        validate_and_store_oauth(
+            environ=env, credentials_class=FakeCredentials,
+            request_factory=object, token_path=tmp_path / "token.pickle",
+        )
+    message = str(err.value)
+    assert "invalid_client" in message
+    assert "YOUTUBE_CLIENT_SECRET" in message
+    assert "test-secret" not in message
+
+
 def test_workflow_validates_oauth_before_pipeline():
     workflow = (Path(__file__).resolve().parents[1] /
                 ".github/workflows/daily-short.yml").read_text(encoding="utf-8")
