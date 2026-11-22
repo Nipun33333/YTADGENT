@@ -1,6 +1,6 @@
 """
 Stock Media Downloader — Google Videos -> Pexels Videos -> Google Images ->
-Pexels Images, with cross-section reuse as a last resort before a section
+Pexels Images, with strict per-section relevance before a section
 is allowed to be truly empty.
 
 Goal:
@@ -1089,7 +1089,12 @@ stock content that could illustrate almost any topic (e.g. a random city
 skyline, random office workers, random abstract particles) should be
 judged as NOT a good match unless the topic itself is that generic
 subject. Judge strictly — it is better to reject borderline content than
-to accept something off-topic.
+to accept something off-topic. If narration is about a named show, film, game,
+character, event, or product, footage must visibly depict that subject or
+specific supporting context; unrelated makeup, cameras, abstract stock,
+franchise logos alone, and superficially similar props do NOT qualify.
+Do not accept footage merely because its search metadata or watermarked text
+mentions the right topic while the actual frames show something else.
 
 Respond with ONLY one line of valid JSON, no markdown, no commentary:
 {{"relevant": true or false, "reason": "one short sentence explaining why"}}
@@ -1874,7 +1879,7 @@ def _fetch_videos(
 
             tried_video_ids.add(video_id)
 
-            # Safety/metadata gate only. Semantic relevance is intentionally disabled.
+            # Metadata gate before download; sampled video frames are checked after download.
             pre_ok, pre_reason = _pre_download_video_guard(
                 source_url=f"pexels:{video_id}",
                 preview_url="",
@@ -1914,7 +1919,7 @@ def _fetch_videos(
                 narration,
                 session_used_hashes,
                 session_used_fingerprints,
-                skip_visual_check=True,
+                skip_visual_check=False,
             )
 
             if not accepted:
@@ -2160,7 +2165,7 @@ def _fetch_google_videos(
 
         metadata = _probe_ytdlp_metadata(video_url)
 
-        # Metadata/domain safety only. No thumbnail/poster relevance check.
+        # Metadata/domain safety before download; sampled video frames are checked after download.
         pre_ok, pre_reason = _pre_download_video_guard(
             source_url=video_url,
             preview_url="",
@@ -2204,7 +2209,7 @@ def _fetch_google_videos(
             narration,
             session_used_hashes,
             session_used_fingerprints,
-            skip_visual_check=True,
+            skip_visual_check=False,
         )
 
         if not accepted:
@@ -2719,13 +2724,8 @@ def download_videos(script: dict, output_dir: str) -> dict:
         2. Pexels Videos   (video fallback)
         3. Google Images   (image fallback)
         4. Pexels Images   (image fallback)
-        5. (only if STILL empty) reuse media already downloaded for a
-           different, non-empty section of this same video — see
-           `_fill_empty_sections_from_pool`. This is the only tier that
-           can leave a section's asset visually less-than-perfectly
-           matched to its own exact narration; it is a documented,
-           deliberate trade-off to satisfy "never produce a blank
-           section" without inventing footage from nothing.
+        5. If no verified media exists for a section, abort the upload.
+           Never borrow footage from an unrelated narration section.
 
     No predefined topic keywords. Queries come exclusively from each
     section's `video_query` / `video_query_2` / `video_query_3` /
@@ -2767,7 +2767,7 @@ def download_videos(script: dict, output_dir: str) -> dict:
     print(
         f"   → Video selection: first {candidate_window} search results per "
         "section batch, then the next batch only when candidates are skipped; "
-        "video relevance scoring/thumbnail/Gemini rejection is disabled. "
+        "every downloaded video is checked against its section by Gemini vision. "
         "Technical size/duration/duplicate safety checks remain active."
     )
 
@@ -3001,30 +3001,15 @@ def download_videos(script: dict, output_dir: str) -> dict:
             f"with a Ken Burns zoom/pan effect instead of native motion."
         )
 
-    # --------------------------------------------------
-    # Tier 5: cross-section pool fill for any section that is STILL
-    # completely empty after all four search tiers. The section's own
-    # timeline slot/duration/captions are untouched — only the visual
-    # asset for that slot is borrowed from elsewhere in the same video.
-    # --------------------------------------------------
-    still_empty_before_pool = [sid for sid, v in media_map.items() if not v]
-
-    if still_empty_before_pool:
-        print(
-            f"\n   ⚠ {len(still_empty_before_pool)} section(s) have NO media "
-            f"at all after Google Videos, Pexels Videos, Google Images, and "
-            f"Pexels Images: {still_empty_before_pool}. Attempting to reuse "
-            f"media from other sections of this same video rather than "
-            f"leaving them blank…"
+    # Never borrow footage from a different narration section. Fail closed
+    # instead of publishing a confusing or visually irrelevant Short.
+    empty_sections = [sid for sid, paths in media_map.items() if not paths]
+    if empty_sections:
+        raise RuntimeError(
+            f"No verified, topic-relevant media found for section(s) {empty_sections}. "
+            "Skipping upload instead of reusing footage from other sections. "
+            "Review video queries, Gemini vision access and media-source quotas."
         )
-
-        filled = _fill_empty_sections_from_pool(media_map, sections, media_source_map)
-
-        if filled:
-            print(
-                f"   ✓ Filled {len(filled)} section(s) from the cross-section "
-                f"media pool: {filled}"
-            )
 
     _validate_no_repeated_video_assets(media_map, media_source_map)
 
