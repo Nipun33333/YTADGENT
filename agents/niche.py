@@ -79,7 +79,7 @@ Do not use a predefined category allowlist.
 SELECTION RULES:
 - Choose only a candidate_id present in the supplied list.
 - Prefer strong current trend signals: recency, view velocity, engagement, and
-  broad US interest. DISCOVERY MODE: ${getattr(config, "DISCOVERY_MODE", "viral").upper()};
+  broad US interest. DISCOVERY MODE: {getattr(config, "DISCOVERY_MODE", "viral").upper()};
   a popularity score is a heuristic, not evidence of guaranteed virality.
 - Prefer candidates that can be explained, contextualized, analyzed, or broken
   down in a short video.
