@@ -11,6 +11,13 @@ for _stream in (sys.stdout, sys.stderr):
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
+# Early-breakout heuristic is default; set DISCOVERY_MODE=trending for legacy
+# views/hour + engagement + freshness score. Neither mode guarantees views.
+DISCOVERY_MODE = os.getenv("DISCOVERY_MODE", "viral").strip().lower()
+if DISCOVERY_MODE not in {"viral", "trending"}:
+    DISCOVERY_MODE = "viral"
+
+
 # ---------------------------------------------------------------------------
 # APIs
 # ---------------------------------------------------------------------------

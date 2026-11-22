@@ -282,11 +282,9 @@ GitHub Actions uses the `Asia/Kolkata` timezone directly. The production schedul
 
 Topic discovery is fully category-agnostic: there is no fixed topic-category allowlist.
 
-- Monday-Friday: **8:00 PM IST → Shorts**
-- Monday-Friday: **10:00 PM IST → Shorts**
-- Tuesday-Saturday at **12:30 AM IST → Shorts** (the third Shorts slot for the previous weekday evening)
-- Saturday: **5:00 PM IST → Long Video**
-- Sunday: **5:00 PM IST → Long Video**
+- Monday-Sunday: **6:00 PM IST → Shorts**
+- Monday-Sunday: **8:00 PM IST → Shorts**
+- Monday-Sunday: **10:00 PM IST → Shorts**
 
 The scheduled time starts the pipeline. The actual YouTube upload can finish later because topic discovery, Gemini generation, TTS, media download, rendering, and OAuth upload take variable time.
 
@@ -294,7 +292,7 @@ The scheduled time starts the pipeline. The actual YouTube upload can finish lat
 ## 🗺️ Roadmap
 
 - [ ] Thumbnail generator (AI-designed cover art)
-- [x] Scheduler (GitHub Actions: 8 PM, 10 PM, and 12:30 AM IST weekday-evening Shorts; 5 PM IST weekend Long videos)
+- [x] Scheduler (GitHub Actions: daily 6 PM, 8 PM, and 10 PM IST Shorts)
 - [ ] Multi-channel support
 - [ ] Custom intro/outro clips
 - [ ] Analytics dashboard
