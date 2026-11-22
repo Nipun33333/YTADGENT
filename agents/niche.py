@@ -51,6 +51,9 @@ def build_selection_prompt(candidates: list[dict], channel_description: str = ""
             "likes": item.get("likes", 0),
             "comments": item.get("comments", 0),
             "trend_score": item.get("trend_score", 0),
+            "viral_score": item.get("viral_score", 0),
+            "views_per_hour": item.get("views_per_hour", 0),
+            "engagement_rate_pct": item.get("engagement_rate_pct", 0),
             "published_at": item.get("published_at", ""),
         }, ensure_ascii=False))
 
@@ -62,6 +65,13 @@ CHANNEL POSITIONING:
 GOAL:
 Select ONE genuinely current, high-signal US trending candidate from the list.
 The selected candidate becomes the immutable subject for the entire pipeline.
+It must also be identifiable, timely, verifiable and understandable to a
+US-based English-speaking viewer. A US-region chart alone is NOT proof of
+strong US demand; use the source's topic, measured views/hour, engagement and
+freshness to judge whether a specific explanation would be useful.
+Reject subject-free clickbait titles (e.g. "This Sucks", "We Won") and vague
+hype without a concrete, supported event or named subject. Never invent an
+explanation topic to rescue a vague upload.
 It can be ANY subject that is genuinely trending. Do not impose any fixed
 subject, franchise, category, entertainment, news, or keyword restriction.
 Do not use a predefined category allowlist.
@@ -69,7 +79,8 @@ Do not use a predefined category allowlist.
 SELECTION RULES:
 - Choose only a candidate_id present in the supplied list.
 - Prefer strong current trend signals: recency, view velocity, engagement, and
-  broad US interest.
+  broad US interest. DISCOVERY MODE: ${getattr(config, "DISCOVERY_MODE", "viral").upper()};
+  a popularity score is a heuristic, not evidence of guaranteed virality.
 - Prefer candidates that can be explained, contextualized, analyzed, or broken
   down in a short video.
 - A raw clip/performance is acceptable when the surrounding subject itself is
