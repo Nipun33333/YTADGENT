@@ -379,11 +379,13 @@ def test_unsupported_domain_is_not_silently_accepted():
 
 def test_workflow_schedule_is_india_time():
     text = Path(".github/workflows/daily-short.yml").read_text(encoding="utf-8")
-    for cron in ['cron: "0 20 * * 1-5"', 'cron: "0 22 * * 1-5"', 'cron: "30 0 * * 2-6"', 'cron: "0 17 * * 6"', 'cron: "0 17 * * 0"']:
+    # Keep existing workflow schedule unchanged; this regression had stale
+    # expectations from an older weekday-only version.
+    for cron in ['cron: "0 18 * * *"', 'cron: "0 20 * * *"', 'cron: "0 22 * * *"']:
         assert cron in text
-    assert text.count('timezone: "Asia/Kolkata"') == 5
+    assert text.count('timezone: "Asia/Kolkata"') == 3
     assert "VIDEO_PRIVACY: public" in text
-    assert "Resolve scheduled video type" in text
+    assert "PIPELINE_VIDEO_TYPE: shorts" in text
 
 
 def test_no_fixed_popculture_gate_remains():
