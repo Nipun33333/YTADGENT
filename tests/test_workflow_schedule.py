@@ -13,22 +13,11 @@ SETUP = ROOT / "SETUP.md"
 
 def test_timezone_aware_schedule_is_exact():
     text = WORKFLOW.read_text(encoding="utf-8")
-    expected = [
-        'cron: "0 20 * * 1-5"',
-        'cron: "0 22 * * 1-5"',
-        'cron: "30 0 * * 2-6"',
-        'cron: "0 17 * * 6"',
-        'cron: "0 17 * * 0"',
-    ]
-    for line in expected:
-        assert line in text
-    assert text.count('timezone: "Asia/Kolkata"') == 5
-    assert '30 8 * * 1-5' not in text
-    assert '50 10 * * 1-5' not in text
-    assert '6 12 * * 1-5' not in text
-    assert '0 14 * * 1-5' not in text
-    assert '0 16 * * 1-5' not in text
-    assert '0 18 * * 1-5' not in text
+    expected = ['0 18 * * *', '0 20 * * *', '0 22 * * *']
+    assert re.findall(r'cron: "([^"\\n]+)"', text) == expected
+    assert text.count('timezone: "Asia/Kolkata"') == 3
+    assert 'PIPELINE_VIDEO_TYPE: shorts' in text
+
 
 
 def test_public_upload_is_explicit():
@@ -56,8 +45,8 @@ def test_pipeline_comments_match_timezone_aware_schedule():
 def test_docs_contain_current_schedule():
     for path in (README, SETUP):
         text = path.read_text(encoding="utf-8")
+        assert "6:00 PM IST" in text
         assert "8:00 PM IST" in text
         assert "10:00 PM IST" in text
-        assert "12:30 AM IST" in text
-        assert "previous weekday evening" in text
-        assert "5:00 PM IST" in text
+        assert "Monday-Sunday" in text
+        assert "5:00 PM IST" not in text
