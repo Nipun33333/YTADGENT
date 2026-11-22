@@ -25,6 +25,35 @@ BANNED_KEYWORDS = [
 ]
 
 
+# Reject source videos whose titles contain no identifiable subject. A video
+# called "This Sucks" or "We Won" provides no safe, grounded topic anchor.
+# This is about source specificity, not a franchise/category allowlist.
+_LOW_INFORMATION_TITLE_WORDS = {
+    "a", "an", "the", "this", "that", "these", "those", "it", "its",
+    "i", "me", "my", "our", "we", "us", "you", "your", "they", "them",
+    "is", "are", "was", "were", "have", "has", "had", "do", "did",
+    "and", "or", "for", "from", "of", "to", "in", "on", "at", "with",
+    "now", "today", "just", "here", "there", "again", "finally",
+    "why", "what", "how", "who", "wow", "lol", "all", "everyone",
+    "internet", "people", "thing", "things", "something", "everything",
+    "happened", "happens", "happening", "exploded", "explodes",
+    "sucks", "won", "win", "winning", "crazy", "insane",
+    "huge", "big", "unbelievable", "shocking", "official",
+    "latest", "new", "video", "update", "news", "reaction",
+}
+
+def has_specific_subject(candidate: dict) -> bool:
+    title = str(candidate.get("title") or "").strip()
+    if not title:
+        return False
+    words = re.findall(r"[a-z0-9]+", title.casefold())
+    # Unicode-only titles (for example, named Japanese works) go to the
+    # existing semantic gate rather than being discarded as empty.
+    return bool(re.search(r"\w", title)) and (
+        not words or any(word not in _LOW_INFORMATION_TITLE_WORDS for word in words)
+    )
+
+
 def normalize(text: str) -> str:
     text = re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower())
     return re.sub(r"\s+", " ", text).strip()
@@ -160,17 +189,42 @@ def _fetch_source(source_name: str, base_params: dict) -> tuple[str, list[dict]]
     return source_name, collected
 
 
+def calculate_viral_score(video: dict) -> float:
+    """Observed early-breakout heuristic, not a prediction of future views."""
+    import math
+    views = max(0, int(video.get("views", 0) or 0))
+    if not views:
+        return 0.0
+    likes = max(0, int(video.get("likes", 0) or 0))
+    comments = max(0, int(video.get("comments", 0) or 0))
+    age = max(_age_hours(video.get("published_at", "")), 0.5)
+    velocity = min(55.0, 11.0 * math.log10(1.0 + views / age))
+    engagement = min(30.0, 200.0 * min(likes / views, 0.10)
+                     + 500.0 * min(comments / views, 0.02))
+    recency = 15.0 * max(0.0, 1.0 - age / max(1, SEARCH_HOURS))
+    return round(min(100.0, velocity + engagement + recency), 2)
+
+
 def _dedupe_and_score(videos: list[dict]) -> list[dict]:
     unique: dict[str, dict] = {}
-    for video in videos:
+    ranking = "viral_score" if getattr(config, "DISCOVERY_MODE", "viral") == "viral" else "trend_score"
+    for item in videos:
+        video = dict(item)
+        views = max(0, int(video.get("views", 0) or 0))
+        age = max(_age_hours(video.get("published_at", "")), 0.5)
+        video["views_per_hour"] = round(views / age, 2)
+        video["engagement_rate_pct"] = round(
+            100.0 * (max(0, int(video.get("likes", 0) or 0))
+                     + max(0, int(video.get("comments", 0) or 0))) / max(views, 1), 2
+        )
+        video["trend_score"] = calculate_video_score(video)
+        video["viral_score"] = calculate_viral_score(video)
         vid = video["video_id"]
-        if vid not in unique or video.get("trend_score", 0) > unique[vid].get("trend_score", 0):
-            video["trend_score"] = calculate_video_score(video)
+        if vid not in unique or video[ranking] > unique[vid][ranking]:
             unique[vid] = video
     result = list(unique.values())
-    result.sort(key=lambda x: (x.get("trend_score", 0), x.get("views", 0)), reverse=True)
+    result.sort(key=lambda x: (x.get(ranking, 0), x.get("views_per_hour", 0)), reverse=True)
     return result
-
 
 def fetch_youtube_candidates() -> list[dict]:
     print("\n   🎬 DYNAMIC YOUTUBE DISCOVERY")
@@ -201,7 +255,7 @@ def filter_candidates(candidates: list[dict]) -> list[dict]:
     filtered = []
     for candidate in candidates:
         title = candidate.get("title", "").strip()
-        if not title or is_banned(title):
+        if not has_specific_subject(candidate) or is_banned(title):
             continue
         if any(topics_are_similar(title, old) for old in used):
             continue
@@ -215,13 +269,15 @@ def choose_best_trend(candidates: list[dict], channel_description: str = "") -> 
     if not candidates:
         raise RuntimeError("No usable current YouTube candidates found.")
 
-    # Preserve broad current-trend ranking. No fixed topic/category priority
-    # is applied; observed trend score and views are the only ordering signals.
+    # Rank the full candidate pool BEFORE truncation, then let Gemini make
+    # the final grounded choice. No fixed subject or category preference.
+    ranking = "viral_score" if getattr(config, "DISCOVERY_MODE", "viral") == "viral" else "trend_score"
     ordered = sorted(
-        candidates[: max(1, config.DISCOVERY_CANDIDATE_LIMIT)],
-        key=lambda x: (float(x.get("trend_score", 0) or 0), int(x.get("views", 0) or 0)),
+        candidates,
+        key=lambda x: (float(x.get(ranking, x.get("trend_score", 0)) or 0),
+                       float(x.get("views_per_hour", 0) or 0)),
         reverse=True,
-    )
+    )[: max(1, config.DISCOVERY_CANDIDATE_LIMIT)]
     batch_size = max(1, int(getattr(config, "DISCOVERY_SEMANTIC_BATCH_SIZE", 30)))
     max_batches = max(1, int(getattr(config, "DISCOVERY_SEMANTIC_MAX_BATCHES", 4)))
     checked = 0
