@@ -32,7 +32,7 @@ _LOW_INFORMATION_TITLE_WORDS = {
     "a", "an", "the", "this", "that", "these", "those", "it", "its",
     "i", "me", "my", "our", "we", "us", "you", "your", "they", "them",
     "is", "are", "was", "were", "have", "has", "had", "do", "did",
-    "and", "or", "for", "from", "of", "to", "in", "on", "at", "with",
+    "and", "or", "for", "from", "of", "to", "in", "on", "at", "with", "over",
     "now", "today", "just", "here", "there", "again", "finally",
     "why", "what", "how", "who", "wow", "lol", "all", "everyone",
     "internet", "people", "thing", "things", "something", "everything",
