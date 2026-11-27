@@ -885,7 +885,15 @@
     "pexels:7914925",
     "pexels:8128029",
     "https://www.tiktok.com/@thesmii7y/video/7692953463231221044",
-    "https://www.tiktok.com/@bantiegames/video/7654902957187534093"
+    "https://www.tiktok.com/@bantiegames/video/7654902957187534093",
+    "pexels:10493079",
+    "pexels:12139633",
+    "pexels:9071005",
+    "https://www.facebook.com/SonyPlaystation/videos/hollow-knight-silksong/4236635653322831",
+    "https://store.steampowered.com/app/1030300/Hollow_Knight_Silksong",
+    "https://www.facebook.com/pcgamermagazine/videos/rapid-review-hollow-knight-silksong-review-hollowknightsilksong-pcgamer/1301598961614729",
+    "pexels:9667860",
+    "pexels:9695192"
   ],
   "images": [
     "https://gamesbeat.com/wp-content/uploads/2026/08/Hitman-768x432.jpg",
@@ -1024,7 +1032,9 @@
     "https://www.tvinsider.com/wp-content/uploads/2026/11/timberlake-apple.jpg",
     "https://cdn.apollo.audio/one/media/6b04/6982/4711/0983/816e/2246/justin-timberlake-documentary.jpg",
     "https://thefutureoftheforce.com/wp-content/uploads/2026/11/Apple_TV_Timberlake_Key_Art-1024x576.png",
-    "https://www.billboard.com/wp-content/uploads/2026/04/harry-styles-live-from-funkhaus-screenshot-1800-billboard.jpg"
+    "https://www.billboard.com/wp-content/uploads/2026/04/harry-styles-live-from-funkhaus-screenshot-1800-billboard.jpg",
+    "https://preview.redd.it/leaked-silksong-dlc-boss-fight-absolute-peak-v0-qmrg0tx151qf1.jpeg",
+    "https://static.vecteezy.com/system/resources/thumbnails/079/823/706/large/subscribe-button-transparent-animation-hd-mov-prores-4444-alpha-channel-overlay-neon-click-effect-for-youtube-gaming-and-social-media-content-free-video.jpg"
   ],
   "video_hashes": [],
   "image_hashes": [],
@@ -1755,7 +1765,15 @@
     "4a96dbc104399400,4996d9c904399440,49b6dbc904399440,49b6fbc904399448",
     "a7a733f9c350737b,af2732c303707bd9,7878783b2d2d1d75,f0f170325a59186c",
     "1986b23b60319e00,d7aed2c16061c04b,773ef2716c709528,0dc6b023c0611600",
-    "2096364eccc904ec,131a0f4ed8ccfc19,c01275c5cb312360,760cc89a98f8f89b"
+    "2096364eccc904ec,131a0f4ed8ccfc19,c01275c5cb312360,760cc89a98f8f89b",
+    "1000707000200000,1004707029100800,40306175e0102000,8269d496cc304400",
+    "0000000000000000,000000000060c004,000000000000001c,00000020008040c0",
+    "71603f64661b3f47,53386362667fedc6,e2a086c4cccfe768,392439193d339978",
+    "1818f4f4dc1c3cfc,acbcdcdcdc5c18d8,d0d0d2f8f87070f0,a0e0e2ece8e064e4",
+    "b0b0d8c9c1f1e98e,b1b9f9f0e0616307,f0f0f0f0f0e8e8e8,30f0f0f0f0b06060",
+    "323a1396f4f8fbdc,707818c8e0e030c0,00080068c0d07178,78f4f018a0e6c461",
+    "0080c08080008084,30a0203020412062,000000000050003a,000000000000003a",
+    "9089e06488800000,70242260d8818100,0012c00000004000,0024000300000808"
   ],
   "image_perceptual_hashes": [
     "99b36b293cc1a73a",
@@ -1819,9 +1837,11 @@
     "f2c6f8e909c97b7a",
     "f2c6f8e909c97b7b",
     "8f3b3b9f1b33cfdb",
-    "b3e8f864f8598687"
+    "b3e8f864f8598687",
+    "66d978b0b2ae1962",
+    "008000d494004000"
   ],
-  "videos_hashes": [
-    "087d326646e503645e44b50862463a6e34b2248ba629c44d7a79291d967c88ef"
+  "images_hashes": [
+    "ed1bb2b76da139a4413fa1a3e2717d5296aaebe23ca6855182cedaa30c1d6bf2"
   ]
 }
